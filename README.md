@@ -1,2 +1,2 @@
 # genailogs
-Get Gemeni AI to opine on various log files
+Get Google Gemini AI to opine on various log files
