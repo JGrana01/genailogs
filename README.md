@@ -19,3 +19,11 @@ verbose - output the question (log) and response to terminal
 debug - output some debug info
 noweb - don't create the userXX.asp file, just display on the screen
 ```
+
+You can add any of the command line options on one line:
+
+```
+$ genailog.sh user7 skynet
+```
+This changes the default .asp file and addes skynet logs
+
