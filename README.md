@@ -11,10 +11,11 @@ genailogs.sh will send log file(s) to Google Gemini AI and then format the resul
 
 The default action is to take the last 40 lines from /tmp/syslog.log and send for analysys.
 There are some command line options:
-
+```
 userXX - set the userXX.asp name instead of the default user19.asp
 skynet - include skynets log
 diversion - include diversions log
 verbose - output the question (log) and response to terminal
 debug - output some debug info
 noweb - don't create the userXX.asp file, just display on the screen
+```
