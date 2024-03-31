@@ -1,0 +1,476 @@
+#!/bin/sh
+#set -x
+# genailogs - feed some log files to Googles Gemini AI and output the results
+#
+# default usage sends the output to a userXX.asp file in /tmp/var/wwwext for viewing on
+# the Addons tab for Asuswrt-Merlin based routers
+#
+
+readonly PROGNAME=genailogs
+readonly PROGDIR=/jffs/scripts
+readonly SCRIPTDIR=/jffs/addons/$PROGNAME
+readonly CONFIG=$PROGNAME.conf
+readonly VERSION=0.1.0
+
+# text formatting
+
+readonly BOLD="\\e[1m"
+readonly SETTING="${BOLD}\\e[36m"
+readonly CLEARFORMAT="\\e[0m"
+
+# Debug and verbose flags
+
+debug=0
+results=0
+verbose=0
+noweb=0
+debughtml=0
+watchlogs=0
+
+# Worker functions
+
+showhelp() {
+	printf "\\ngenailogs (Ver $VERSION) - send one or more log files to Google Gemini AI\\n"
+	printf "            and display the results in an Addon web page and/or the terminal\\n"
+	printf "\\nUsage: genailogs [help] [install] [uninstall] [results] [noweb] [verbose]\\n"
+	printf "\\thelp - show this message\\n"
+	printf "\\tinstall - install genailogs and create addon dir and config file\\n"
+	printf "\\tuninstall - remove genailogs and its directory and config file\\n"
+	printf "\\tresults - just show the response/results from Gemini AI\\n"
+	printf "\\tnoweb - don't create the web page, just show the results\\n"
+	printf "\\tverbose - both create the web page and show the results\\n"
+	printf "\\twatch - send logs/get results every SLDELAY seconds in a loop\\n"
+	printf "                press any key to exit\\n"
+	printf "\\n"	
+}
+
+dprint() {
+	if [ $debug = 1 ]; then
+		printf "\\n%s\\n" "$1"
+	fi
+}
+
+waitsome() {
+	if [ $1 = 1 ]; then
+		printf "\\nPress Enter to Continue..."
+		read -r
+	fi
+}
+
+
+checkexit() {
+         if $(read -r -t $SLDELAY); then
+            	printf "\\n"
+		cleanupfiles
+		exit
+        fi
+}
+
+doinstall() {
+
+	printf "\\nInstall $PROGNAME\\n"
+	printf "\\nAre you sure you want to install $PROGNAME and it's required apps (fold and jq) and config file (Y|N) ?"
+	read -r answr
+	case $answr in
+		Y|y)
+			printf "\\nInstalling..."
+			;;
+			N|n)
+				printf "\\nOk, not installing\\n"
+				exit
+			;;
+			*)
+				printf "Enter either Y or N...exiting\\n"
+				exit
+			;;
+	esac
+
+# make sure it was downloaded to the correct place
+
+	if [ ! -f /jffs/scripts/$PROGNAME ]; then
+		cp ./$PROGNAME.sh /jffs/scripts/$PROGNAME
+		rm -f ./$PROGNAME.sh
+	fi
+
+# check for entware, bail if not there
+
+	printf "\\n\\nInstalling $PROGNAME\\n\\n"
+	if [ ! -x /opt/bin/opkg ]; then
+		printf "\\nEntware not deteted (and needed)\\n"
+		printf "Install using AMTM and try again.\\n"
+		exit 1
+	fi
+
+# check for required helper apps
+
+	if [ ! -x /opt/bin/fold ] || [ ! -x /opt/bin/jq ]; then
+		printf "\\nThe applications fold and jq are needed.\\n"
+		printf "   Check and install now (Y|N) ? "
+		read -r answr
+		case $answr in
+			Y|y)
+				printf "\\nInstalling..."
+				/opt/bin/opkg update
+				if [ ! -x /opt/bin/fold ]; then
+					/opt/bin/opkg install coreutils-fold
+					if [ ! -x /opt/bin/fold ]; then
+						printf "\\nError - can't seem to install fold...\\n"
+						printf "   Exiting\\n"
+						exit 1
+					fi
+				fi
+				if [ ! -x /opt/bin/jq ]; then
+					/opt/bin/opkg install jq
+					if [ ! -x /opt/bin/jq ]; then
+						printf "\\nError - can't seem to install jq...\\n"
+						printf "   Exiting\\n"
+						exit 1
+					fi
+				fi
+				printf "\\nSuccess\\n"
+			;;
+			N|n)
+				printf "This scripts requires fold and jq...exiting\\n"
+				exit 1
+			;;
+			*)
+				printf "Enter either Y or N...exiting\\n"
+				exit 1
+			;;
+		esac
+	fi
+
+# setup addon dir and config file
+
+	mkdir -p $SCRIPTDIR
+
+# find a spare addon web slot
+#    thanks to JackYaz
+
+	USERASP="none"
+	for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+		page="/www/user/user$i.asp"
+		if [ -f "$page" ] && grep -q "GenAI Analyze Logs" "$page"; then
+			USERASP="user$i.asp"
+		elif [ "$USERASP" = "none" ] && [ ! -f "$page" ]; then
+			USERASP="user$i.asp"
+		fi
+	done
+
+
+cat <<EOF > $SCRIPTDIR/$CONFIG
+#
+# $PROGNAME conf file
+#
+
+API_KEY="PutYourAPIKeyHere"          # Put here ;-)
+LOGFILES="/tmp/syslog.log"           # log files to analyze - always check syslog
+                                     # add more logs seperated by a space like this (i.e add diversion log)
+                                     # LOGFILES="/tmp/syslog.log /opt/var/log/dnsmasq.log" etc.
+USERASP="$USERASP"                   # /tmp/var/wwwext output file. Shouldnt need to change
+NUMLINES=40                          # last number of lines from log file to analyze
+                                     # less give less info, more can take some time and be chatty
+SLDELAY=300                          # time between analysis for watch mode
+                                     # in seconds (default=300 - 5 mins)
+EOF
+
+# add menu to Addons tab
+# code taken from JackYaz which was forked from Dave
+
+
+	sed -i "\\~$USERASP~d" /tmp/menuTree.js
+
+	if ! grep -q 'menuName: "Addons"' /tmp/menuTree.js ; then
+		echo "no addons"
+		read a
+		lineinsbefore="$(( $(grep -n "exclude:" /tmp/menuTree.js | cut -f1 -d':') - 1))"
+		sed -i "$lineinsbefore"'i,\n{\nmenuName: "Addons",\nindex: "menu_Addons",\ntab: [\n{url: "javascript:var helpwindow=window.open('"'"'/ext/shared-jy/redirect.htm'"'"')", tabName: "Help & Support"},\n{url: "NULL", tabName: "__INHERIT__"}\n]\n}' /tmp/menuTree.js
+	fi
+		
+	sed -i "/url: \"javascript:var helpwindow=window.open('\/ext\/shared-jy\/redirect.htm'/i {url: \"$USERASP\", tabName: \"GenAI Analyze Logs\"}," /tmp/menuTree.js
+
+ 	umount /www/require/modules/menuTree.js 2>/dev/null
+        mount -o bind /tmp/menuTree.js /www/require/modules/menuTree.js
+
+# now make link to app
+
+	printf "\\nInstalling $PROGNAME in /opt/sbin\\n"
+        if [ -d "/opt/sbin" ] && [ ! -L "/opt/sbin/$PROGNAME" ]; then
+               	ln -s "$PROGDIR/$PROGNAME" "/opt/sbin/$PROGNAME"
+             	chmod 0755 "/opt/sbin/$PROGNAME"
+        fi
+
+	printf "\\n$SCRIPTDIR/$CONFIG created and $PROGNAME installed in /opt/sbin\\n"
+	printf "\\nBefore running $PROGNAME you will need to get an API key from https://aistudio.google.com/app/apikey\\n"
+	printf "Once you get the key, edit $SCRIPTDIR/$CONFIG and change the API_KEY line\\n\\n"
+	printf "\\nInstall done.\\n"
+	exit
+}
+
+douninstall() {
+
+	if [ ! -x $PROGDIR/$PROGNAME ] || [ ! -d $SCRIPTDIR ]; then
+		printf "\\n$PROGNAME doesn't seem to be installed\\n"
+		exit
+	fi
+
+	source $SCRIPTDIR/$CONFIG
+
+	printf "\\nUninstall $PROGNAME\\n"
+	printf "\\nAre you sure you want to remove $PROGNAME and it's config file (Y|N) ?"
+	read -r answr
+	case $answr in
+		Y|y)
+			printf "\\nUninstalling..."
+			rm -rf $SCRIPTDIR
+			rm -f $PROGDIR/$PROGNAME
+                   	if [ -L /opt/sbin/$PROGNAME ]; then
+				rm -f /opt/sbin/$PROGNAME
+		   	fi
+			rm -f "/tmp/var/wwwext/$USERASP"
+			sed -i "\\~$USERASP~d" /tmp/menuTree.js
+			printf "\\nSuccess - $PROGNAME uninstalled.\\n"
+		;;
+		N|n)
+				printf "\\nok, exiting...\\n"
+				exit 
+		;;
+		*)
+				printf "Enter either Y or N...exiting\\n"
+				exit
+		;;
+	esac
+}
+
+
+# Function to call GenAI
+genaiqa() {
+
+# only look at logs for todays date
+    todayis=$(date +"%b %d")
+    logis=$(basename $1)
+    grep "$todayis" "$1" > $logis
+
+# snapshot time for log report
+
+    timestamp=$(date +"%c")
+
+# now send off...
+
+    d=$(tail -n "$NUMLINES" "$logis")
+
+    question="Please analyze the following log file for issues: '${d}'"
+
+    # Call GenAI API
+    curl -sSX POST \
+        -H 'Content-Type: application/json' \
+        -H "x-goog-api-key: ${API_KEY}" \
+        -o "genresp" \
+        -d '{
+                "contents": [
+                        {
+                        "role": "user",
+                        "parts": [
+                                {
+                                "text": "Please analyze the following log file for issues: '"${d}"'"
+                                }
+                        ]
+                        }
+                ]
+                }' \
+        "https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent"
+
+    if [ -s genresp ]; then
+        output=$(jq -r '.candidates[0].content.parts[0].text' genresp | tr -d "'")
+    else
+        output="Unable to get any answers from Google AI"
+    fi
+    rm -f $logis
+}
+
+# Function to start HTML file
+starthtmlfile() {
+    if [ $noweb = 0 ]; then
+	echo "<!DOCTYPE html>" > "$output_file_path"
+    	echo "<html>" >> "$output_file_path"
+    	echo "<head>" >> "$output_file_path"
+    	echo "<title> GeminiAI Log Analyze </title>" >> "$output_file_path"
+    	echo "</head><body>" >> "$output_file_path"
+    fi
+}
+
+# Function to close HTML file
+closehtmlfile() {
+    if [ $noweb = 0 ]; then
+    	echo "</body></html>" >> "$output_file_path"
+    fi
+}
+
+# Function to prepare output
+prepareoutput() {
+
+    	timestamp=$(date +"%c")
+	request="<b><i>Please analyze the following log file ($log) for issues:</i></b><br><br>'"${d}"'"
+	prettyout="$(printf "%s" "$output" | fold -w 80 -s)"
+
+	if [ $noweb = 1 ]; then
+		return
+	fi
+
+	dprint "DEBUG: $request"
+	dprint "DEBUG: $prettyout"
+	waitsome $debug
+
+	# Save the log content and analysis result to a file
+    	echo "<h2> Question ($log - $timestamp):</h2>" >> $output_file_path
+	if [ $results = 0 ]; then
+    		echo "<pre style=\"background-color:lightgrey;\"> $request</pre>" >> $output_file_path
+	fi
+    	echo "<h2 style=\"background-color:white;\"> GenAI Analysis Result ($log):</h2>" >> $output_file_path
+    	echo "<pre>$prettyout</pre>" >> $output_file_path
+}
+
+# Function to print request and answer to screen if verbose or noweb mode on
+showverbose() {
+	if [ $noweb = 1 ] || [ $verbose = 1 ]; then
+    		printf "\\nHere is the analysis ($log - $timestamp):\\n"
+		if [ $results = 0 ]; then
+    			printf "%s\\n" "$question" | more
+    			read -rp "Press Enter to show analysis..."
+		fi
+    		printf "\\n%s\\n\\n" "$prettyout" | more
+	fi
+}
+
+# Function to check for options and installed needed apps
+#          and build the log file and response
+dogenai() {
+
+# look for any command line options
+
+	if [ ! "$#" -eq 0 ]; then
+		while [ "$#" -gt 0 ]; do
+    			case $1 in
+				install)
+					doinstall
+					exit
+				;;
+				uninstall)
+					douninstall
+					exit
+				;;
+				help)
+					showhelp
+					exit
+				;;
+				results)
+					results=1
+				;;
+				noweb) 
+					noweb=1
+					dprint "No Web On"
+				;;
+				watch) 
+					watchlogs=1
+					dprint "Watch Logs On"
+				;;
+				verbose) 
+					verbose=1
+					dprint "Verbose On"
+				;;
+				watchlog)
+					watchlog=1
+					noweb=1
+					dprint "Watch Log On"
+				;;
+				debug)
+					debug=1
+					printf "\\nDebug On\\n"
+           			;;
+				debughtml)
+					debughtml=1
+				;;
+				*)
+	   				echo "Invalid argument $1"
+	   				exit
+           			;;
+    			esac
+    		shift
+		done
+	fi
+
+# make sure we have our config info
+
+	if [ ! -f $SCRIPTDIR/$CONFIG ]; then
+		printf "\\n$SCRIPTDIR/$CONFIG not detected, please run install\\n"
+		exit
+	fi
+
+	if grep -q "PutYourAPIKeyHere" $SCRIPTDIR/$CONFIG; then
+		printf "\\n API Key not detected in $SCRIPTDIR/$CONFIG\\n"
+		printf "\\nGet a key from https://aistudio.google.com/app/apikey and add it\\n"
+		exit
+	fi
+
+# ok, load config
+
+	source $SCRIPTDIR/$CONFIG
+
+
+	# Set output file path based on debug mode
+	if [ $debughtml = 1 ]; then
+    		output_file_path="/tmp/$USERASP"
+		printf "\\nNote: Using debug asp file - $output_file_path\\n"
+	else
+    		output_file_path="/tmp/var/wwwext/$USERASP"
+	fi
+}
+
+processlogs() {
+
+	starthtmlfile
+	
+	for log in $LOGFILES
+	do
+		genaiqa "$log"
+		prepareoutput
+		if [ $noweb = 1 ] || [ $watchlogs = 1 ]; then
+			printf "\\n${BOLD}GenAI analysis result for "$log" ($timestamp)${CLEARFORMAT}\\n"
+		else
+			printf "\\nQuestion, Log content, and GenAI analysis result for "$log" saved to $output_file_path\\n"
+		fi
+		showverbose
+	done
+
+	closehtmlfile
+}
+
+# remove temp files
+cleanupfiles() {
+	rm -f genresp
+}
+
+# Main script
+
+dogenai "$@"
+
+if [ $watchlogs = 1 ]; then
+	debug=0		# override interactive things
+	verbose=0
+	results=1
+	printf "\\nWatching logs every $SLDELAY seconds\\n"
+	printf "\\n Press any key to exit\\n"
+	while true
+	do
+		processlogs
+    		printf "\\n%s\\n\\n" "$prettyout"
+		checkexit
+	done
+else
+	processlogs
+fi
+
+cleanupfiles
+
+exit
+
