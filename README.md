@@ -59,6 +59,8 @@ After a successful installation and before useing genailogs you will need to get
 
 Get the API key from https://aistudio.google.com/app/apikey
 
+![image](https://github.com/JGrana01/genailogs/assets/11652784/e0b13ae5-cb94-405c-842f-9acf43c63056)
+
 Edit the /jffs/addons/genailogs/genailogs.conf file and put the api key string in the line:
 ```
 readonly API_KEY="Put your API key here"
