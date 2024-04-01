@@ -353,6 +353,7 @@ showverbose() {
     				printf "%s\\n" "$question"
 			fi
 		fi
+		printf "\\n${BOLD}Analysis:${CLEARFORMAT}\\n"
     		printf "\\n%s\\n\\n" "$prettyout" | more
 	fi
 }
