@@ -31,7 +31,7 @@ You can add any of the command line options on one line. For example:
 ```
 $ genailogs noweb results
 ```
-This will not update the web page and just show the analysis results to the terminal
+This will not update the web page and just show the analysis results. If running from a terminal (stdin) it will send the output through "more". If running from a script or redirect, no paging._
 
 ```
 $ genailogs watch
