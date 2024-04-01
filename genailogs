@@ -4,6 +4,12 @@
 #
 # default usage sends the output to a userXX.asp file in /tmp/var/wwwext for viewing on
 # the Addons tab for Asuswrt-Merlin based routers
+# You can also send the output to standard out.
+#
+# Default output is first the question (log file sent) then the analysis from Gemini
+#
+# You can output just the analysis by using the "result" option
+#
 #
 
 readonly PROGNAME=genailogs
@@ -67,7 +73,6 @@ checkexit() {
 }
 
 doinstall() {
-
 	printf "\\nInstall $PROGNAME\\n"
 	printf "\\nAre you sure you want to install $PROGNAME and it's required apps (fold and jq) and config file (Y|N) ?"
 	read -r answr
@@ -152,8 +157,10 @@ doinstall() {
 		page="/www/user/user$i.asp"
 		if [ -f "$page" ] && grep -q "GenAI Analyze Logs" "$page"; then
 			USERASP="user$i.asp"
+			USERTTL="user$i.title"
 		elif [ "$USERASP" = "none" ] && [ ! -f "$page" ]; then
 			USERASP="user$i.asp"
+			USERTTL="user$i.title"
 		fi
 	done
 
@@ -189,6 +196,8 @@ EOF
 		
 	sed -i "/url: \"javascript:var helpwindow=window.open('\/ext\/shared-jy\/redirect.htm'/i {url: \"$USERASP\", tabName: \"GenAI Analyze Logs\"}," /tmp/menuTree.js
 
+	echo "GenAI Analyze Logs" > /www/user/$USERTTL
+
  	umount /www/require/modules/menuTree.js 2>/dev/null
         mount -o bind /tmp/menuTree.js /www/require/modules/menuTree.js
 
@@ -208,13 +217,14 @@ EOF
 }
 
 douninstall() {
-
 	if [ ! -x $PROGDIR/$PROGNAME ] || [ ! -d $SCRIPTDIR ]; then
 		printf "\\n$PROGNAME doesn't seem to be installed\\n"
 		exit
 	fi
 
 	source $SCRIPTDIR/$CONFIG
+	printf "\\nLogfiles: %s\\n" $LOGFILES
+	read a
 
 	printf "\\nUninstall $PROGNAME\\n"
 	printf "\\nAre you sure you want to remove $PROGNAME and it's config file (Y|N) ?"
@@ -246,7 +256,8 @@ douninstall() {
 # Function to call GenAI
 genaiqa() {
 
-# only look at logs for todays date
+# only look at logs for todays date and only NUMLINES long
+
     todayis=$(date +"%b %d")
     logis=$(basename $1)
     grep "$todayis" "$1" > $logis
@@ -257,7 +268,7 @@ genaiqa() {
 
 # now send off...
 
-    d=$(tail -n "$NUMLINES" "$logis")
+    d=$(tail -n "$NUMLINES" "$1")
 
     question="Please analyze the following log file for issues: '${d}'"
 
@@ -308,7 +319,6 @@ closehtmlfile() {
 
 # Function to prepare output
 prepareoutput() {
-
     	timestamp=$(date +"%c")
 	request="<b><i>Please analyze the following log file ($log) for issues:</i></b><br><br>'"${d}"'"
 	prettyout="$(printf "%s" "$output" | fold -w 80 -s)"
@@ -335,14 +345,19 @@ showverbose() {
 	if [ $noweb = 1 ] || [ $verbose = 1 ]; then
     		printf "\\nHere is the analysis ($log - $timestamp):\\n"
 		if [ $results = 0 ]; then
-    			printf "%s\\n" "$question" | more
-    			read -rp "Press Enter to show analysis..."
+			if [ -t 1 ]; then   # runing from terminal or script?
+    				printf "%s\\n" "$question" | more
+				echo
+	    			read -rp "Press Enter to show analysis..."
+			else
+    				printf "%s\\n" "$question"
+			fi
 		fi
     		printf "\\n%s\\n\\n" "$prettyout" | more
 	fi
 }
 
-# Function to check for options and installed needed apps
+# Main Function to check for options and installed needed apps
 #          and build the log file and response
 dogenai() {
 
@@ -409,13 +424,13 @@ dogenai() {
 	if grep -q "PutYourAPIKeyHere" $SCRIPTDIR/$CONFIG; then
 		printf "\\n API Key not detected in $SCRIPTDIR/$CONFIG\\n"
 		printf "\\nGet a key from https://aistudio.google.com/app/apikey and add it\\n"
+		printf "to $SCRIPTDIR/$CONFIG.\\n"
 		exit
 	fi
 
 # ok, load config
 
 	source $SCRIPTDIR/$CONFIG
-
 
 	# Set output file path based on debug mode
 	if [ $debughtml = 1 ]; then
