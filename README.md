@@ -11,11 +11,12 @@ genailogs will send log file(s) to Google Gemini AI and then format the results 
 
 The default action is to take the last 40 lines from /tmp/syslog.log and send for analysys.
 There are some command line options:
-```
-genailogs (Ver 0.1.0) - send one or more log files to Google Gemini AI
+
+genailogs (Ver 0.2.0) - send one or more log files to Google Gemini AI
             and display the results in an Addon web page and/or the terminal
 
-Usage: genailogs [help] [install] [uninstall] [results] [noweb] [verbose] [update]
+Usage: genailogs [help] [install] [uninstall] [update] [results] [noweb] [verbose]
+
         help - show this message
         install - install genailogs and create addon dir and config file
         uninstall - remove genailogs and its directory and config file
@@ -24,7 +25,8 @@ Usage: genailogs [help] [install] [uninstall] [results] [noweb] [verbose] [updat
         verbose - both create the web page and show the results
         watch - send logs/get results every SLDELAY seconds in a loop
                 press any key to exit
-        update - check for a new version on github and offer to install it.
+        update - check for and optionally update
+
 ```
 
 You can add any of the command line options on one line. For example:
