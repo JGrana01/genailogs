@@ -16,7 +16,7 @@ readonly PROGNAME=genailogs
 readonly PROGDIR=/jffs/scripts
 readonly SCRIPTDIR=/jffs/addons/$PROGNAME
 readonly CONFIG=$PROGNAME.conf
-readonly VERSION=0.1.0
+readonly VERSION=0.2.0
 
 # text formatting
 
@@ -38,7 +38,7 @@ watchlogs=0
 showhelp() {
 	printf "\\ngenailogs (Ver $VERSION) - send one or more log files to Google Gemini AI\\n"
 	printf "            and display the results in an Addon web page and/or the terminal\\n"
-	printf "\\nUsage: genailogs [help] [install] [uninstall] [results] [noweb] [verbose]\\n"
+	printf "\\nUsage: genailogs [help] [install] [uninstall] [update] [results] [noweb] [verbose]\\n\\n"
 	printf "\\thelp - show this message\\n"
 	printf "\\tinstall - install genailogs and create addon dir and config file\\n"
 	printf "\\tuninstall - remove genailogs and its directory and config file\\n"
@@ -47,6 +47,7 @@ showhelp() {
 	printf "\\tverbose - both create the web page and show the results\\n"
 	printf "\\twatch - send logs/get results every SLDELAY seconds in a loop\\n"
 	printf "                press any key to exit\\n"
+	printf "\\tupdate - check for and optionally update $PROGRAME\\n"
 	printf "\\n"	
 }
 
@@ -252,6 +253,47 @@ douninstall() {
 	esac
 }
 
+doupdate() {
+	if [ -x "$PROGDIR/$PROGNAME" ] && [ -d "$SCRIPTDIR" ]; then
+
+		curl --retry 3 --silent "https://raw.githubusercontent.com/JGrana01/genailogs/master/SCRIPTVER" -o "$SCRIPTDIR/VERSION.new"
+		
+		if [ -z "$SCRIPTDIR/VERSION.new" ]; then
+			echo "genailogs: Could not retrieve version number from github. Exiting."
+			exit
+		fi
+
+		oldwas=$(grep -m 1 "VERSION=" "$PROGDIR/$PROGNAME" | sed 's/readonly VERSION\=//g')
+		newis=$(grep -m 1 "VERSION=" "$SCRIPTDIR/VERSION.new" | sed 's/VERSION\=//g')
+
+		printf "Old was: %s   New is: %s\\n" $oldwas $newis
+		read a
+
+		rm -f "$SCRIPTDIR/VERSION.new"
+
+		if [ "$oldwas" = "$newis" ]; then
+			echo "genailogs is up to date"
+			exit
+		fi
+
+		printf "New version ($newis) of genailogs found.\\n"
+		printf "\\nDownload and install the latest version of genailogs (Y/N)? "
+		read a
+		if [ "$a" = "n" ] || [ "$a" = "N" ]; then
+			exit
+		else
+			printf "\\nOk, downloading genailogs\\n"
+			$CURLAP --retry 3 --silent "https://raw.githubusercontent.com/JGrana01/genailogs/master/genailogs" -o /jffs/scripts/genailogs && chmod 0755 /jffs/scripts/genailogs
+			printf "\\n\\nDone.\\n"
+			printf "Old version was %s, new version us %s\\n" $oldwas $newis
+			
+		fi
+	else
+		printf "\\n\\n$PROGNAME doesnt appear to be installed!!!\\n"
+	fi
+
+}
+
 
 # Function to call GenAI
 genaiqa() {
@@ -398,6 +440,9 @@ dogenai() {
 					watchlog=1
 					noweb=1
 					dprint "Watch Log On"
+				;;
+				update)
+					doupdate
 				;;
 				debug)
 					debug=1
