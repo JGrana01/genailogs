@@ -266,13 +266,10 @@ doupdate() {
 		oldwas=$(grep -m 1 "VERSION=" "$PROGDIR/$PROGNAME" | sed 's/readonly VERSION\=//g')
 		newis=$(grep -m 1 "VERSION=" "$SCRIPTDIR/VERSION.new" | sed 's/VERSION\=//g')
 
-		printf "Old was: %s   New is: %s\\n" $oldwas $newis
-		read a
-
 		rm -f "$SCRIPTDIR/VERSION.new"
 
 		if [ "$oldwas" = "$newis" ]; then
-			echo "genailogs is up to date"
+			printf "\\n\\ngenailogs is up to date\\n\\n"
 			exit
 		fi
 
@@ -283,9 +280,9 @@ doupdate() {
 			exit
 		else
 			printf "\\nOk, downloading genailogs\\n"
-			$CURLAP --retry 3 --silent "https://raw.githubusercontent.com/JGrana01/genailogs/master/genailogs" -o /jffs/scripts/genailogs && chmod 0755 /jffs/scripts/genailogs
+			curl --retry 3 --silent "https://raw.githubusercontent.com/JGrana01/genailogs/master/genailogs" -o /jffs/scripts/genailogs && chmod 0755 /jffs/scripts/genailogs
 			printf "\\n\\nDone.\\n"
-			printf "Old version was %s, new version us %s\\n" $oldwas $newis
+			printf "\\nUpdated to version %s\\n\\n" $newis
 			
 		fi
 	else
@@ -443,6 +440,7 @@ dogenai() {
 				;;
 				update)
 					doupdate
+					exit
 				;;
 				debug)
 					debug=1
