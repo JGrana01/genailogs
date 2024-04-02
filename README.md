@@ -15,7 +15,7 @@ There are some command line options:
 genailogs (Ver 0.1.0) - send one or more log files to Google Gemini AI
             and display the results in an Addon web page and/or the terminal
 
-Usage: genailogs [help] [install] [uninstall] [results] [noweb] [verbose]
+Usage: genailogs [help] [install] [uninstall] [results] [noweb] [verbose] [update]
         help - show this message
         install - install genailogs and create addon dir and config file
         uninstall - remove genailogs and its directory and config file
@@ -24,6 +24,7 @@ Usage: genailogs [help] [install] [uninstall] [results] [noweb] [verbose]
         verbose - both create the web page and show the results
         watch - send logs/get results every SLDELAY seconds in a loop
                 press any key to exit
+        update - check for a new version on github and offer to install it.
 ```
 
 You can add any of the command line options on one line. For example:
