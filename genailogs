@@ -17,7 +17,7 @@ readonly PROGDIR=/jffs/scripts
 readonly SCRIPTDIR=/jffs/addons/$PROGNAME
 readonly SCRIPTLOGDIR=/jffs/addons/$PROGNAME/logs
 readonly CONFIG=$PROGNAME.conf
-readonly VERSION=0.3.0
+readonly VERSION=0.3.1
 
 # text formatting
 
@@ -187,7 +187,7 @@ NUMLINES="40"                          # last number of lines from log file to a
 SLDELAY="300"                        # time in secods between analysis for watch mode
                                      # (default=300 - 5 mins)
 NUMLOGS="5"			     # number of logs to save - for cron job
-SCHEDULEHRS="*"		             # hour of day to run genailogs in cron mode (default * - once per hour
+SCHEDULEHRS="*"		             # hour of day to run genailogs in cron mode (default * - once per hour)
 SCHEDULEMIN="01"		     # minutes of hour to run genailogs in cron mode
 EOF
 
@@ -222,6 +222,22 @@ EOF
 	printf "\\n$SCRIPTDIR/$CONFIG created and $PROGNAME installed in /opt/sbin\\n"
 	printf "\\nBefore running $PROGNAME you will need to get an API key from https://aistudio.google.com/app/apikey\\n"
 	printf "Once you get the key, edit $SCRIPTDIR/$CONFIG and change the API_KEY line\\n\\n"
+	printf "\\n\\nDo you want to add a cron job to have $PROGNAME run every hour and store the last 5 analysis\\n"
+	printf "    (this can be changed by editting $SCRIPTDIR/$CONFIG)  (Y|N)? "
+	read -r answr
+	case $answr in
+		Y|y)
+			printf "\\nSetting up cron job..."
+				addcronjob
+				"\\n\\n!!! Remember to add your API key to $SCRIPTDIR/$CONFIG - the cron job won't run without this !!!\\n\\n"
+			;;
+			N|n)
+				printf "\\nOk, not adding - you can always add it by executing: $PROGNAME cron add\\n"
+			;;
+			*)
+				printf "Enter either Y or N...exiting\\n"
+			;;
+	esac
 	printf "\\nInstall done.\\n"
 	exit
 }
@@ -233,8 +249,6 @@ douninstall() {
 	fi
 
 	source $SCRIPTDIR/$CONFIG
-	printf "\\nLogfiles: %s\\n" $LOGFILES
-	read a
 
 	printf "\\nUninstall $PROGNAME\\n"
 	printf "\\nAre you sure you want to remove $PROGNAME and it's config file (Y|N) ?"
@@ -242,6 +256,7 @@ douninstall() {
 	case $answr in
 		Y|y)
 			printf "\\nUninstalling..."
+			delcronjob
 			rm -rf $SCRIPTDIR
 			rm -f $PROGDIR/$PROGNAME
                    	if [ -L /opt/sbin/$PROGNAME ]; then
@@ -604,10 +619,15 @@ checkenv() {
 	fi
 
 	if grep -q "PutYourAPIKeyHere" $SCRIPTDIR/$CONFIG; then
-		printf "\\n API Key not detected in $SCRIPTDIR/$CONFIG\\n"
-		printf "\\nGet a key from https://aistudio.google.com/app/apikey and add it\\n"
-		printf "to $SCRIPTDIR/$CONFIG.\\n"
-		exit
+		if [ $cronmode = 0 ]; then
+			printf "\\n API Key not detected in $SCRIPTDIR/$CONFIG\\n"
+			printf "\\nGet a key from https://aistudio.google.com/app/apikey and add it\\n"
+			printf "to $SCRIPTDIR/$CONFIG.\\n"
+			exit
+		else
+			logger -t genailogs "genailogs cron job not run - API key not detected"
+			exit
+		fi
 	fi
 
 }
