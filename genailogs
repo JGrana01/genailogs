@@ -229,7 +229,7 @@ EOF
 		Y|y)
 			printf "\\nSetting up cron job..."
 				addcronjob
-				"\\n\\n!!! Remember to add your API key to $SCRIPTDIR/$CONFIG - the cron job won't run without this !!!\\n\\n"
+				printf "\\n\\n${BOLD} Remember to add your API key to $SCRIPTDIR/$CONFIG - the cron job won't run without this ${CLEARFORMAT}n\\n"
 			;;
 			N|n)
 				printf "\\nOk, not adding - you can always add it by executing: $PROGNAME cron add\\n"
