@@ -12,19 +12,21 @@ genailogs will send log file(s) to Google Gemini AI and then format the results 
 The default action is to take the last 40 lines from /tmp/syslog.log and send for analysys.
 There are some command line options:
 
-genailogs (Ver 0.2.0) - send one or more log files to Google Gemini AI
-            and display the results in an Addon web page and/or the terminal
-
-Usage: genailogs [help] [install] [uninstall] [update] [results] [noweb] [verbose]
+```
+Usage: genailogs [help] [install] [uninstall] [update] [results] [noweb] [verbose] [cron add|del|run]
 
         help - show this message
-        install - install genailogs and create addon dir and config file
-        uninstall - remove genailogs and its directory and config file
         results - just show the response/results from Gemini AI
         noweb - don't create the web page, just show the results
         verbose - both create the web page and show the results
         watch - send logs/get results every SLDELAY seconds in a loop
                 press any key to exit
+        cron [add|del|run] - cron job - log the last
+                 additional argument: add - add a cron entry
+                                      del - delete the cron job
+                                      run - run the cron job
+        install - install genailogs and create addon dir and config file
+        uninstall - remove genailogs and its directory and config file
         update - check for and optionally update
 
 ```
@@ -35,18 +37,6 @@ You can add any of the command line options on one line. For example:
 $ genailogs noweb results
 ```
 This will not update the web page and just show the analysis results. If running from a terminal (stdin) it will send the output through "more". If running from a script or redirect, no paging._
-
-```
-$ genailogs watch
-```
-This will run genailogs in a loop with the delay (in seconds) set by SLDELAY in the config file. It will both update the web page and display on the terminal.
-
-```
-$ genailogs noweb watch
-```
-This will run in a loop, displaying the analysis to the terminal but NOT update the web page.
-
-genailogs with no command line options will update the web page and exit.
 
 ## Installation
 For Asuswrt-merlin based routers running Entware, using your preferred SSH client/terminal, copy and paste the following command, then press Enter:
@@ -72,14 +62,19 @@ After installation, some of the variables can be changed in the /jffs/addons/gen
 
 Leave the USERASP line alone - it is generated during install!
 ```
-LOGFILEs - the default log file to have analyzed is /tmp/syslog. You can add as many log files as you want.
-           Append them to this line with a space between them.
-           For example, to add Diversions log (and still anaylze syslog) change the line to:
-           LOGFILES="/tmp/syslog /opt/var/log/dnsmasq.log"
-           (be sure to enclose in double quotes)
-NUMLINES - this is the number of lines to get from the logfile. Default is 40. The more lines, the more analysis (and output!!!)
-           the less - the less.
-SLDELAY - in "watch" mode, this is the number of seconds between sending logs to get and display/write results.
+API_KEY="PutYourAPIKeyHere"          # Put here ;-)
+LOGFILES="/tmp/syslog.log"           # log files to analyze - always check syslog
+                                     # add more logs seperated by a space like this (i.e add diversion log)
+                                     # LOGFILES="/tmp/syslog.log /opt/var/log/dnsmasq.log" etc.
+USERASP="$USERASP"                   # /tmp/var/wwwext output file. Shouldnt need to change
+NUMLINES="40"                          # last number of lines from log file to analyze
+                                     # less give less info, more can take some time and be chatty
+SLDELAY="300"                        # time in secods between analysis for watch mode
+                                     # (default=300 - 5 mins)
+NUMLOGS="5"                          # number of logs to save - for cron job
+SCHEDULEHRS="*"                      # hour of day to run genailogs in cron mode (default * - once per hour)
+SCHEDULEMIN="01"                     # minutes of hour to run genailogs in cron mode
+
 ```
 
 ## Using
@@ -96,6 +91,26 @@ If you add the "noweb" option, it would just output the above to standard out.
 
 The "watch" option can be used to monitor a log (or logs) every n minutes. Change the SLDELAY variable in /jffs/addons/genailogs/genailogs.conf to how long between analysis.
 Alone, it will update the Addons tab; combined with noweb, it will display the results to standard out. It's useful to open a seperate ssh session/window to keep an eye on potential issues or when monitoring a known network event.
+```
+$ genailogs watch
+```
+This will run genailogs in a loop with the delay (in seconds) set by SLDELAY in the config file. It will both update the web page and display on the terminal.
+
+```
+$ genailogs noweb watch
+```
+This will run in a loop, displaying the analysis to the terminal but NOT update the web page.
+
+The cron command will setup a cron job (using cru) and store the last NUMLOGS for display on the web page. Each log is seperated by a light blue line with the log file number (i.e. genailog2)
+NUMLOG is default at 5. This can be changed in the genailog conf file (/jffs/addons/genailog/genailog.conf). The default period to run genailogs is 1 min. past every hour. Again, these can be changed by editting the conf file.
+The cron command requires another argument - add, del or run:
+```
+cron add - adds the genailog cron function (or updates if it is already setup)
+cron del - removes the cron job
+cron run - runs the actaul job - genailogs rotates the previous log file (LIFO) based on the number of log files always stored (NUMLOGS)
+```
+
+genailogs with no command line options will update the web page and exit.
 
 ## Uninstall
 If you decide to remove genailogs, simply run with the uninstall option:
