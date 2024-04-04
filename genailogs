@@ -15,8 +15,9 @@
 readonly PROGNAME=genailogs
 readonly PROGDIR=/jffs/scripts
 readonly SCRIPTDIR=/jffs/addons/$PROGNAME
+readonly SCRIPTLOGDIR=/jffs/addons/$PROGNAME/logs
 readonly CONFIG=$PROGNAME.conf
-readonly VERSION=0.2.0
+readonly VERSION=0.3.0
 
 # text formatting
 
@@ -30,6 +31,7 @@ debug=0
 results=0
 verbose=0
 noweb=0
+cronmode=0
 debughtml=0
 watchlogs=0
 
@@ -38,15 +40,19 @@ watchlogs=0
 showhelp() {
 	printf "\\ngenailogs (Ver $VERSION) - send one or more log files to Google Gemini AI\\n"
 	printf "            and display the results in an Addon web page and/or the terminal\\n"
-	printf "\\nUsage: genailogs [help] [install] [uninstall] [update] [results] [noweb] [verbose]\\n\\n"
+	printf "\\nUsage: genailogs [help] [install] [uninstall] [update] [results] [noweb] [verbose] [cron add|del|run]\\n\\n"
 	printf "\\thelp - show this message\\n"
-	printf "\\tinstall - install genailogs and create addon dir and config file\\n"
-	printf "\\tuninstall - remove genailogs and its directory and config file\\n"
 	printf "\\tresults - just show the response/results from Gemini AI\\n"
 	printf "\\tnoweb - don't create the web page, just show the results\\n"
 	printf "\\tverbose - both create the web page and show the results\\n"
 	printf "\\twatch - send logs/get results every SLDELAY seconds in a loop\\n"
 	printf "                press any key to exit\\n"
+	printf "\\tcron [add|del|run] - cron job - log the last $NUMLOGS\\n"
+	printf "\\t         additional argument: add - add a cron entry\\n"
+	printf "\\t                              del - delete the cron job\\n"
+	printf "\\t                              run - run the cron job\\n"
+	printf "\\tinstall - install genailogs and create addon dir and config file\\n"
+	printf "\\tuninstall - remove genailogs and its directory and config file\\n"
 	printf "\\tupdate - check for and optionally update $PROGRAME\\n"
 	printf "\\n"	
 }
@@ -176,10 +182,13 @@ LOGFILES="/tmp/syslog.log"           # log files to analyze - always check syslo
                                      # add more logs seperated by a space like this (i.e add diversion log)
                                      # LOGFILES="/tmp/syslog.log /opt/var/log/dnsmasq.log" etc.
 USERASP="$USERASP"                   # /tmp/var/wwwext output file. Shouldnt need to change
-NUMLINES=40                          # last number of lines from log file to analyze
+NUMLINES="40"                          # last number of lines from log file to analyze
                                      # less give less info, more can take some time and be chatty
-SLDELAY=300                          # time between analysis for watch mode
-                                     # in seconds (default=300 - 5 mins)
+SLDELAY="300"                        # time in secods between analysis for watch mode
+                                     # (default=300 - 5 mins)
+NUMLOGS="5"			     # number of logs to save - for cron job
+SCHEDULEHRS="*"		             # hour of day to run genailogs in cron mode (default * - once per hour
+SCHEDULEMIN="01"		     # minutes of hour to run genailogs in cron mode
 EOF
 
 # add menu to Addons tab
@@ -341,23 +350,24 @@ genaiqa() {
 # Function to start HTML file
 starthtmlfile() {
     if [ $noweb = 0 ]; then
-	echo "<!DOCTYPE html>" > "$output_file_path"
-    	echo "<html>" >> "$output_file_path"
-    	echo "<head>" >> "$output_file_path"
-    	echo "<title> GeminiAI Log Analyze </title>" >> "$output_file_path"
-    	echo "</head><body>" >> "$output_file_path"
+	echo "<!DOCTYPE html>" > $1
+    	echo "<html>" >> $1
+    	echo "<head>" >> $1
+    	echo "<title> GeminiAI Log Analyze </title>" >> $1
+    	echo "</head><body>" >> $1
     fi
 }
 
 # Function to close HTML file
 closehtmlfile() {
     if [ $noweb = 0 ]; then
-    	echo "</body></html>" >> "$output_file_path"
+    	echo "</body></html>" >> $1
     fi
 }
 
 # Function to prepare output
 prepareoutput() {
+
     	timestamp=$(date +"%c")
 	request="<b><i>Please analyze the following log file ($log) for issues:</i></b><br><br>'"${d}"'"
 	prettyout="$(printf "%s" "$output" | fold -w 80 -s)"
@@ -371,12 +381,12 @@ prepareoutput() {
 	waitsome $debug
 
 	# Save the log content and analysis result to a file
-    	echo "<h2> Question ($log - $timestamp):</h2>" >> $output_file_path
+    	echo "<h2> GenAiLogs ($log - $timestamp):</h2>" >> $1
 	if [ $results = 0 ]; then
-    		echo "<pre style=\"background-color:lightgrey;\"> $request</pre>" >> $output_file_path
+    		echo "<pre style=\"background-color:lightgrey;\"> $request</pre>" >> $1
 	fi
-    	echo "<h2 style=\"background-color:white;\"> GenAI Analysis Result ($log):</h2>" >> $output_file_path
-    	echo "<pre>$prettyout</pre>" >> $output_file_path
+    	echo "<h2 style=\"background-color:white;\"> GenAI Analysis Result ($log):</h2>" >> $1
+    	echo "<pre>$prettyout</pre>" >> $1
 }
 
 # Function to print request and answer to screen if verbose or noweb mode on
@@ -395,6 +405,104 @@ showverbose() {
 		printf "\\n${BOLD}Analysis:${CLEARFORMAT}\\n"
     		printf "\\n%s\\n\\n" "$prettyout" | more
 	fi
+}
+
+docronjob() {
+
+# make sure were installed and load configs
+
+	checkenv
+	setconfigs
+
+	mkdir -p $SCRIPTLOGDIR
+
+#output_file_path=/tmp/tstgen
+
+# do a LIFO on the existing logs
+# and create if they are not yet there.
+
+	i=$NUMLOGS
+	while [ $i -gt 1 ]; do
+		if [ ! -f $SCRIPTLOGDIR/genlog$i ]; then
+			echo "<pre>No analysis for log $i created yet</pre>" > $SCRIPTLOGDIR/genlog$i
+		else
+			cp $SCRIPTLOGDIR/genlog"$((i - 1))" $SCRIPTLOGDIR/genlog$i
+		fi
+		i="$((i - 1))"
+	done
+
+# process the logs and save a copy
+
+	processlogs /tmp/genlogsout
+	cp /tmp/genlogsout $SCRIPTLOGDIR/genlog1
+
+# rebuild the web page
+
+	cp /tmp/genlogsout $output_file_path
+	rm -f /tmp/genlogsout
+	i=2
+	while [ $i -le $NUMLOGS ]; do
+		echo "<div style=\"background-color: #CCEEFF; height: 30px; position: relative;\">" >> $output_file_path
+    		echo "<span style=\"position: absolute; top: 5px; left: 50%;\">genailog$i</span>" >> $output_file_path
+		echo "</div>" >> $output_file_path
+		cat $SCRIPTLOGDIR/genlog$i >> $output_file_path
+		i="$((i + 1))"
+	done
+	logger -t $PROGNAME "genailogs cron job ran successful"
+}
+
+#
+# add/del genailogs to cron and install in services-start
+#
+#   majority of code from BACKUPMON (@Victor Jaep)
+#
+addcronjob() {
+
+	source $SCRIPTDIR/$CONFIG  # get config info
+
+	if [ -f /jffs/scripts/services-start ]; then
+		if ! grep -q -F "sh /jffs/scripts/genailogs cron run" /jffs/scripts/services-start; then
+		      printf "\\nAdding genilogs to services-start and cron..."
+                      echo 'cru a GenAiLogs "'"$SCHEDULEMIN $SCHEDULEHRS * * * sh /jffs/scripts/genailogs cron run"'"' >> /jffs/scripts/services-start
+                      cru a GenAiLogs "$SCHEDULEMIN $SCHEDULEHRS * * * sh /jffs/scripts/genailogs cron run"
+		      printf "Done\\n"
+		else
+		      printf "\\ngenailogs already setup as cron job, re-adding..."
+                      #delete and re-add if it already exists in case there's a time change
+                      sed -i '/GenAiLogs/d' /jffs/scripts/services-start
+                      cru d GenAiLogs
+                      echo 'cru a GenAiLogs "'"$SCHEDULEMIN $SCHEDULEHRS * * * sh /jffs/scripts/genailogs cron run"'"' >> /jffs/scripts/services-start
+                      cru a GenAiLogs "$SCHEDULEMIN $SCHEDULEHRS * * * sh /jffs/scripts/genailogs cron run"
+		      printf "Done\\n"
+		fi
+	else
+		printf "\\nCreating services-start and adding genilogs and cron..."
+		echo "#!/bin/sh" > /jffs/scripts/services-start
+		echo 'cru a GenAiLogs "'"$SCHEDULEMIN $SCHEDULEHRS * * * sh /jffs/scripts/genailogs cron run"'"' >> /jffs/scripts/services-start
+		chmod 755 /jffs/scripts/services-start
+		cru a GenAiLogs "$SCHEDULEMIN $SCHEDULEHRS * * * sh /jffs/scripts/genailogs cron run"
+		printf "Done\\n"
+	fi
+}
+
+delcronjob() {
+
+	source $SCRIPTDIR/$CONFIG  # get config info
+
+	if [ -f /jffs/scripts/services-start ]; then
+		if grep -q -F "sh /jffs/scripts/genailogs cron run" /jffs/scripts/services-start; then
+		      printf "\\nRemoving genailogs from services-start and cron..."
+                      sed -i '/GenAiLogs/d' /jffs/scripts/services-start
+		      printf "Done\\n"
+		else
+		      printf "\\ngenailogs not in services-start... nothing to remove\\n"
+                      cru d GenAiLogs   # just to be safe
+		fi
+	else
+		printf "\\nNo services-start file!!! Nothing to remove\\n"
+	fi
+	cru d GenAiLogs   # just to be safe
+
 }
 
 # Main Function to check for options and installed needed apps
@@ -435,8 +543,31 @@ dogenai() {
 				;;
 				watchlog)
 					watchlog=1
-					noweb=1
+					noweb=1      # insure no web
 					dprint "Watch Log On"
+				;;
+				cron)
+					shift
+					case $1	in
+						add)
+							addcronjob
+							exit
+						;;
+						del)
+							delcronjob
+							exit
+						;;
+						run)
+							doweb=0  # override if set
+							cronmode=1	# set in cron mode
+							docronjob
+							exit
+						;;
+						*)
+							printf "\\nwrong argument for cron function: $1\\n"
+							exit
+						;;
+					esac
 				;;
 				update)
 					doupdate
@@ -450,7 +581,8 @@ dogenai() {
 					debughtml=1
 				;;
 				*)
-	   				echo "Invalid argument $1"
+	   				printf "\\ngenailogs: Invalid argument $1\\n"
+					showhelp
 	   				exit
            			;;
     			esac
@@ -458,7 +590,13 @@ dogenai() {
 		done
 	fi
 
-# make sure we have our config info
+# check environment and load confgis
+
+	checkenv
+	setconfigs
+}
+
+checkenv() {
 
 	if [ ! -f $SCRIPTDIR/$CONFIG ]; then
 		printf "\\n$SCRIPTDIR/$CONFIG not detected, please run install\\n"
@@ -472,7 +610,10 @@ dogenai() {
 		exit
 	fi
 
-# ok, load config
+}
+
+setconfigs() {
+# ok, load config info
 
 	source $SCRIPTDIR/$CONFIG
 
@@ -487,21 +628,21 @@ dogenai() {
 
 processlogs() {
 
-	starthtmlfile
+	starthtmlfile $1
 	
 	for log in $LOGFILES
 	do
 		genaiqa "$log"
-		prepareoutput
+		prepareoutput $1
 		if [ $noweb = 1 ] || [ $watchlogs = 1 ]; then
 			printf "\\n${BOLD}GenAI analysis result for "$log" ($timestamp)${CLEARFORMAT}\\n"
-		else
-			printf "\\nQuestion, Log content, and GenAI analysis result for "$log" saved to $output_file_path\\n"
+		elif [ $cronmode = 0 ]; then
+			printf "\\nQuestion, Log content, and GenAI analysis result for "$log" saved to $1\\n"
 		fi
 		showverbose
 	done
 
-	closehtmlfile
+	closehtmlfile $1
 }
 
 # remove temp files
@@ -521,12 +662,12 @@ if [ $watchlogs = 1 ]; then
 	printf "\\n Press any key to exit\\n"
 	while true
 	do
-		processlogs
+		processlogs "$output_file_path"
     		printf "\\n%s\\n\\n" "$prettyout"
 		checkexit
 	done
 else
-	processlogs
+		processlogs "$output_file_path"
 fi
 
 cleanupfiles
