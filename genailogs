@@ -367,6 +367,7 @@ starthtmlfile() {
     if [ $noweb = 0 ]; then
 	echo "<!DOCTYPE html>" > $1
     	echo "<html>" >> $1
+	echo '<a href="../"><input type="button" value="Back"/></a>' >> $1
     	echo "<head>" >> $1
     	echo "<title> GeminiAI Log Analyze </title>" >> $1
     	echo "</head><body>" >> $1
@@ -376,6 +377,7 @@ starthtmlfile() {
 # Function to close HTML file
 closehtmlfile() {
     if [ $noweb = 0 ]; then
+	echo '<a href="../"><input type="button" value="Back"/></a>' >> $1
     	echo "</body></html>" >> $1
     fi
 }
