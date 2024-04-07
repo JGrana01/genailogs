@@ -17,7 +17,8 @@ readonly PROGDIR=/jffs/scripts
 readonly SCRIPTDIR=/jffs/addons/$PROGNAME
 readonly SCRIPTLOGDIR=/jffs/addons/$PROGNAME/logs
 readonly CONFIG=$PROGNAME.conf
-readonly VERSION=0.3.1
+readonly VERSION=0.4.2
+
 
 # text formatting
 
@@ -32,15 +33,16 @@ results=0
 verbose=0
 noweb=0
 cronmode=0
+chatmode=0
 debughtml=0
 watchlogs=0
 
 # Worker functions
 
 showhelp() {
-	printf "\\ngenailogs (Ver $VERSION) - send one or more log files to Google Gemini AI\\n"
+	printf "\\ngenailogs (Ver $VERSION) - send one or more log files (or chat) to Google Gemini AI\\n"
 	printf "            and display the results in an Addon web page and/or the terminal\\n"
-	printf "\\nUsage: genailogs [help] [install] [uninstall] [update] [results] [noweb] [verbose] [cron add|del|run]\\n\\n"
+	printf "\\nUsage: genailogs [help] [install] [uninstall] [update] [results] [noweb] [verbose] [cron add|del|run] [chat]\\n\\n"
 	printf "\\thelp - show this message\\n"
 	printf "\\tresults - just show the response/results from Gemini AI\\n"
 	printf "\\tnoweb - don't create the web page, just show the results\\n"
@@ -51,6 +53,7 @@ showhelp() {
 	printf "\\t         additional argument: add - add a cron entry\\n"
 	printf "\\t                              del - delete the cron job\\n"
 	printf "\\t                              run - run the cron job\\n"
+	printf "\\tchat - start an interactive chat session with GeminiAI\\n"
 	printf "\\tinstall - install genailogs and create addon dir and config file\\n"
 	printf "\\tuninstall - remove genailogs and its directory and config file\\n"
 	printf "\\tupdate - check for and optionally update $PROGRAME\\n"
@@ -320,22 +323,35 @@ doupdate() {
 genaiqa() {
 
 # only look at logs for todays date and only NUMLINES long
+    if [ $chatmode = 0 ]; then
 
-    todayis=$(date +"%b %d")
-    logis=$(basename $1)
-    grep "$todayis" "$1" > $logis
+    	if [ ! -f $1 ]; then
+		printf "\\ngenailogs: Error - $1 not found\\n"
+		output=""
+		return
+	fi
+
+	todayis=$(date +"%b %d")
+	logis=$(basename $1)
+	grep "$todayis" "$1" > $logis
 
 # snapshot time for log report
 
-    timestamp=$(date +"%c")
+    	timestamp=$(date +"%c")
 
 # now send off...
 
-    d=$(tail -n "$NUMLINES" "$1")
+    	d=$(tail -n "$NUMLINES" "$1")
 
-    question="Please analyze the following log file for issues: '${d}'"
+    	question="Please analyze the following log file for issues: '${d}'"
+
+   else
+	question="Please answer the following: ${1}?"
+   	printf "\\nWorking..."
+   fi
 
     # Call GenAI API
+
     curl -sSX POST \
         -H 'Content-Type: application/json' \
         -H "x-goog-api-key: ${API_KEY}" \
@@ -346,7 +362,7 @@ genaiqa() {
                         "role": "user",
                         "parts": [
                                 {
-                                "text": "Please analyze the following log file for issues: '"${d}"'"
+                                "text": "'"$question"'"
                                 }
                         ]
                         }
@@ -354,10 +370,20 @@ genaiqa() {
                 }' \
         "https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent"
 
-    if [ -s genresp ]; then
-        output=$(jq -r '.candidates[0].content.parts[0].text' genresp | tr -d "'")
+    if [ $chatmode = 0 ]; then
+    	if [ -s genresp ]; then
+        	output=$(jq -r '.candidates[0].content.parts[0].text' genresp | tr -d "'")
+    	else
+        	output="Unable to get any answers from Google AI"
+    	fi
     else
-        output="Unable to get any answers from Google AI"
+    	if [ -s genresp ]; then
+        	output=$(jq -r '.candidates[0].content.parts[0].text' genresp)
+    	else
+        	output="Unable to get any answers from Google AI"
+    	fi
+
+    	printf "\\r${BOLD} %s ${CLEARFORMAT}\\n\\n" "$output"
     fi
     rm -f $logis
 }
@@ -466,6 +492,29 @@ docronjob() {
 		i="$((i + 1))"
 	done
 	logger -t $PROGNAME "genailogs cron job ran successful"
+}
+
+dochat() {
+
+	checkenv
+	setconfigs
+
+	printf "\\n\\nGeminiAI Chat mode. Enter a line of text and get a response.\\n"
+	printf "    Enter "q" to exit this mode\\n\\n"
+
+	while true; do
+    		read -p "chat> " input
+		if [[ "$input" == "q" ]]; then
+        		echo "Exiting..."
+        		break
+    		fi
+
+    # Call GenAI API
+	if [ ! -z "$input" ]; then
+		cleanout=$(echo $input | sed "s/\"/'/g")
+		genaiqa "$cleanout"
+	fi
+done
 }
 
 #
@@ -586,6 +635,11 @@ dogenai() {
 						;;
 					esac
 				;;
+				chat)
+					chatmode=1
+					dochat
+					exit
+				;;
 				update)
 					doupdate
 					exit
@@ -655,13 +709,15 @@ processlogs() {
 	for log in $LOGFILES
 	do
 		genaiqa "$log"
-		prepareoutput $1
-		if [ $noweb = 1 ] || [ $watchlogs = 1 ]; then
-			printf "\\n${BOLD}GenAI analysis result for "$log" ($timestamp)${CLEARFORMAT}\\n"
-		elif [ $cronmode = 0 ]; then
-			printf "\\nQuestion, Log content, and GenAI analysis result for "$log" saved to $1\\n"
+		if [ ! -z "$output" ]; then
+			prepareoutput $1
+			if [ $noweb = 1 ] || [ $watchlogs = 1 ]; then
+				printf "\\n${BOLD}GenAI analysis result for "$log" ($timestamp)${CLEARFORMAT}\\n"
+			elif [ $cronmode = 0 ]; then
+				printf "\\nQuestion, Log content, and GenAI analysis result for "$log" saved to $1\\n"
+			fi
+			showverbose
 		fi
-		showverbose
 	done
 
 	closehtmlfile $1
