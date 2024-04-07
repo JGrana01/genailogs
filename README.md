@@ -13,7 +13,7 @@ The default action is to take the last 40 lines from /tmp/syslog.log and send fo
 There are some command line options:
 
 ```
-Usage: genailogs [help] [install] [uninstall] [update] [results] [noweb] [verbose] [cron add|del|run]
+Usage: genailogs [help] [install] [uninstall] [update] [results] [noweb] [verbose] [cron add|del|run] [chat]
 
         help - show this message
         results - just show the response/results from Gemini AI
@@ -25,6 +25,7 @@ Usage: genailogs [help] [install] [uninstall] [update] [results] [noweb] [verbos
                  additional argument: add - add a cron entry
                                       del - delete the cron job
                                       run - run the cron job
+        chat - begin an interactive chat session with GeminiAI. q exits the chat
         install - install genailogs and create addon dir and config file
         uninstall - remove genailogs and its directory and config file
         update - check for and optionally update
@@ -111,6 +112,64 @@ cron run - runs the actaul job - genailogs rotates the previous log file (LIFO) 
 ```
 
 genailogs with no command line options will update the web page and exit.
+
+chat - The chat mode of genailogs will start an interactive "chat" session. You input a question at the prompt (chat > ) and genailogs will send it to GeminiAI for a response.
+It then outputs the response in bold and presents another prompt.
+
+Entering "q" at the prompt will end the session.
+
+genailogs always appends the "?" character at the end of the question - but putting one in doesn't change the response.
+
+```GeminiAI Chat mode. Enter a line of text and get a response.
+    Enter q to exit this mode
+
+chat> What is the difference between a WiFi Access Point and Router
+
+ **WiFi Access Point (WAP)**
+
+* **Primary Function:** Extends the wireless network coverage of an existing wired network.
+* **Role:** Connects wireless devices to the wired network and provides wireless Internet access.
+* **Does not have:** Routing capabilities, so it cannot connect to multiple networks or assign IP addresses.
+
+**Wireless Router**
+
+* **Primary Function:** Connects multiple devices (wired and wireless) to the Internet and manages traffic between them.
+* **Role:** Acts as a central hub for network traffic, providing routing, DHCP, and firewall protection.
+* **Has:** Routing capabilities, allowing it to connect to multiple networks, assign IP addresses, and manage traffic flow.
+
+**Key Differences:**
+
+| Feature | WiFi Access Point | Wireless Router |
+|---|---|---|
+| Routing Capabilities | No | Yes |
+| IP Address Assignment | No | Yes |
+| Network Management | None | Firewall, NAT, DHCP |
+| Network Connectivity | Single | Multiple |
+| Connection Type | Wireless | Both Wired and Wireless |
+| Placement | Typically positioned at the edge of the network | Placed centrally to cover the entire area |
+| Usage | Extends wireless coverage | Connects devices, manages traffic, and provides Internet access |
+
+chat> Write a short shell script that reads an argument and outputs the number of characters in it
+
+bash..
+#!/bin/bash
+# This script takes an argument and outputs the number of characters in it.
+# Get the argument from the command line.
+argument=$1
+# Get the length of the argument.
+length=${#argument}
+# Print the length of the argument.
+echo $length
+
+chat> What is a swap file used for
+
+ A swap file is used to extend the amount of physical memory (RAM) available on a computer. When the RAM is full, the system moves some of the less frequently used data from RAM to the swap file, which is stored on the hard drive. This frees up RAM for more active programs and processes.
+
+chat> q
+Exiting...
+
+```
+
 
 ## Uninstall
 If you decide to remove genailogs, simply run with the uninstall option:
