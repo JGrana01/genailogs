@@ -17,8 +17,7 @@ readonly PROGDIR=/jffs/scripts
 readonly SCRIPTDIR=/jffs/addons/$PROGNAME
 readonly SCRIPTLOGDIR=/jffs/addons/$PROGNAME/logs
 readonly CONFIG=$PROGNAME.conf
-readonly VERSION=0.4.2
-
+readonly VERSION=0.5.0
 
 # text formatting
 
@@ -40,7 +39,7 @@ watchlogs=0
 # Worker functions
 
 showhelp() {
-	printf "\\ngenailogs (Ver $VERSION) - send one or more log files (or chat) to Google Gemini AI\\n"
+	printf "\\ngenailogs (Ver $VERSION) - send one or more log files to Google Gemini AI\\n"
 	printf "            and display the results in an Addon web page and/or the terminal\\n"
 	printf "\\nUsage: genailogs [help] [install] [uninstall] [update] [results] [noweb] [verbose] [cron add|del|run] [chat]\\n\\n"
 	printf "\\thelp - show this message\\n"
@@ -79,8 +78,129 @@ checkexit() {
             	printf "\\n"
 		cleanupfiles
 		exit
-        fi
+	fi
 }
+
+findwebslot() {
+
+# find a spare addon web slot
+#    thanks to JackYaz
+
+	USERASP="none"
+	for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+		page="/www/user/user$i.asp"
+		if [ -f "$page" ] && grep -q "GeminiAI Log Analyze" "$page"; then
+			USERASP="user$i.asp"
+			USERTTL="user$i.title"
+#			printf "Found existing slot %s\\n" $USERASP >> /tmp/genlog
+		elif [ "$USERASP" = "none" ] && [ ! -f "$page" ]; then
+			USERASP="user$i.asp"
+			USERTTL="user$i.title"
+#			printf "Found new slot %s\\n" $USERASP >> /tmp/genlog
+		fi
+	done
+
+}
+
+addmenu() {
+
+# add menu to Addons tab
+# code taken from JackYaz which was forked from Dave
+### locking mechanism code credit to Martineau (@MartineauUK) ###
+
+        LOCKFILE=/tmp/addonwebui.lock
+        FD=386
+        eval exec "$FD>$LOCKFILE"
+        flock -x "$FD"
+        findwebslot
+
+        if [ "$USERASP" = "none" ]; then
+                printf "Unable to mount $PROGNAME WebUI page, exiting\\n"
+		logger -t "genailogs" "Unable to mount WebUI page - exited"
+                flock -u "$FD"
+                exit
+        fi
+	sed -i '/USERASP/d' $SCRIPTDIR/$CONFIG
+	echo "USERASP=$USERASP      # auto generated" >> $SCRIPTDIR/$CONFIG
+
+
+        if [ "$(uname -o)" = "ASUSWRT-Merlin" ]; then
+                if [ ! -f /tmp/index_style.css ]; then
+                        cp -f /www/index_style.css /tmp/
+                fi
+
+                if ! grep -q '.menu_Addons' /tmp/index_style.css ; then
+                        echo ".menu_Addons { background: url(ext/shared-jy/addons.png); }" >> /tmp/index_style.css
+                fi
+
+                umount /www/index_style.css 2>/dev/null
+                mount -o bind /tmp/index_style.css /www/index_style.css
+
+                if [ ! -f /tmp/menuTree.js ]; then
+                        cp -f /www/require/modules/menuTree.js /tmp/
+                fi
+
+                sed -i "\\~$USERASP~d" /tmp/menuTree.js
+
+                if ! grep -q 'menuName: "Addons"' /tmp/menuTree.js ; then
+                        lineinsbefore="$(( $(grep -n "exclude:" /tmp/menuTree.js | cut -f1 -d':') - 1))"
+                        sed -i "$lineinsbefore"'i,\n{\nmenuName: "Addons",\nindex: "menu_Addons",\ntab: [\n{url: "javascript:var helpwindow=window.open('"'"'/ext/shared-jy/redirect.htm'"'"')", tabName: "Help & Support"},\n{url: "NULL", tabName: "__INHERIT__"}\n]\n}' /tmp/menuTree.js
+                fi
+
+                sed -i "/url: \"javascript:var helpwindow=window.open('\/ext\/shared-jy\/redirect.htm'/i {url: \"$USERASP\", tabName: \"GenAI Analyze Logs\"}," /tmp/menuTree.js
+   	        echo "GenAI Analyze Logs" > /www/user/$USERTTL
+
+                umount /www/require/modules/menuTree.js 2>/dev/null
+                mount -o bind /tmp/menuTree.js /www/require/modules/menuTree.js
+		logger -t "genailogs" "Mounted WebUI page - $USERASP"
+        fi
+        flock -u "$FD"
+
+}
+
+
+Auto_Startup(){
+	case $1 in
+		create)
+			
+			if [ -f /jffs/scripts/post-mount ]; then
+				STARTUPLINECOUNT=$(grep -c '# '"$PROGNAME" /jffs/scripts/post-mount)
+				STARTUPLINECOUNTEX=$(grep -cx "/jffs/scripts/$PROGNAME startup"' "$@" & # '"$PROGNAME" /jffs/scripts/post-mount)
+				
+				if [ "$STARTUPLINECOUNT" -gt 1 ] || { [ "$STARTUPLINECOUNTEX" -eq 0 ] && [ "$STARTUPLINECOUNT" -gt 0 ]; }; then
+					sed -i -e '/# '"$PROGNAME"'/d' /jffs/scripts/post-mount
+				fi
+				
+				if [ "$STARTUPLINECOUNTEX" -eq 0 ]; then
+					echo "/jffs/scripts/$PROGNAME startup"' "$@" & # '"$PROGNAME" >> /jffs/scripts/post-mount
+				fi
+			else
+				echo "#!/bin/sh" > /jffs/scripts/post-mount
+				echo "" >> /jffs/scripts/post-mount
+				echo "/jffs/scripts/$PROGNAME startup"' "$@" & # '"$PROGNAME" >> /jffs/scripts/post-mount
+				chmod 0755 /jffs/scripts/post-mount
+			fi
+		;;
+		delete)
+			if [ -f /jffs/scripts/services-start ]; then
+				STARTUPLINECOUNT=$(grep -c '# '"$PROGNAME" /jffs/scripts/services-start)
+				
+				if [ "$STARTUPLINECOUNT" -gt 0 ]; then
+					sed -i -e '/# '"$PROGNAME"'/d' /jffs/scripts/services-start
+				fi
+			fi
+			
+			if [ -f /jffs/scripts/post-mount ]; then
+				STARTUPLINECOUNT=$(grep -c '# '"$PROGNAME" /jffs/scripts/post-mount)
+				
+				if [ "$STARTUPLINECOUNT" -gt 0 ]; then
+					sed -i -e '/# '"$PROGNAME"'/d' /jffs/scripts/post-mount
+				fi
+			fi
+		;;
+	esac
+}
+
 
 doinstall() {
 	printf "\\nInstall $PROGNAME\\n"
@@ -159,22 +279,6 @@ doinstall() {
 
 	mkdir -p $SCRIPTDIR
 
-# find a spare addon web slot
-#    thanks to JackYaz
-
-	USERASP="none"
-	for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
-		page="/www/user/user$i.asp"
-		if [ -f "$page" ] && grep -q "GenAI Analyze Logs" "$page"; then
-			USERASP="user$i.asp"
-			USERTTL="user$i.title"
-		elif [ "$USERASP" = "none" ] && [ ! -f "$page" ]; then
-			USERASP="user$i.asp"
-			USERTTL="user$i.title"
-		fi
-	done
-
-
 cat <<EOF > $SCRIPTDIR/$CONFIG
 #
 # $PROGNAME conf file
@@ -184,7 +288,6 @@ API_KEY="PutYourAPIKeyHere"          # Put here ;-)
 LOGFILES="/tmp/syslog.log"           # log files to analyze - always check syslog
                                      # add more logs seperated by a space like this (i.e add diversion log)
                                      # LOGFILES="/tmp/syslog.log /opt/var/log/dnsmasq.log" etc.
-USERASP="$USERASP"                   # /tmp/var/wwwext output file. Shouldnt need to change
 NUMLINES="40"                          # last number of lines from log file to analyze
                                      # less give less info, more can take some time and be chatty
 SLDELAY="300"                        # time in secods between analysis for watch mode
@@ -192,27 +295,11 @@ SLDELAY="300"                        # time in secods between analysis for watch
 NUMLOGS="5"			     # number of logs to save - for cron job
 SCHEDULEHRS="*"		             # hour of day to run genailogs in cron mode (default * - once per hour)
 SCHEDULEMIN="01"		     # minutes of hour to run genailogs in cron mode
+USERASP="none"                   # /tmp/var/wwwext output file. Auto generated
 EOF
 
-# add menu to Addons tab
-# code taken from JackYaz which was forked from Dave
-
-
-	sed -i "\\~$USERASP~d" /tmp/menuTree.js
-
-	if ! grep -q 'menuName: "Addons"' /tmp/menuTree.js ; then
-		echo "no addons"
-		read a
-		lineinsbefore="$(( $(grep -n "exclude:" /tmp/menuTree.js | cut -f1 -d':') - 1))"
-		sed -i "$lineinsbefore"'i,\n{\nmenuName: "Addons",\nindex: "menu_Addons",\ntab: [\n{url: "javascript:var helpwindow=window.open('"'"'/ext/shared-jy/redirect.htm'"'"')", tabName: "Help & Support"},\n{url: "NULL", tabName: "__INHERIT__"}\n]\n}' /tmp/menuTree.js
-	fi
-		
-	sed -i "/url: \"javascript:var helpwindow=window.open('\/ext\/shared-jy\/redirect.htm'/i {url: \"$USERASP\", tabName: \"GenAI Analyze Logs\"}," /tmp/menuTree.js
-
-	echo "GenAI Analyze Logs" > /www/user/$USERTTL
-
- 	umount /www/require/modules/menuTree.js 2>/dev/null
-        mount -o bind /tmp/menuTree.js /www/require/modules/menuTree.js
+Auto_Startup create
+addmenu
 
 # now make link to app
 
@@ -260,6 +347,7 @@ douninstall() {
 		Y|y)
 			printf "\\nUninstalling..."
 			delcronjob
+			Auto_Startup delete
 			rm -rf $SCRIPTDIR
 			rm -f $PROGDIR/$PROGNAME
                    	if [ -L /opt/sbin/$PROGNAME ]; then
@@ -278,6 +366,33 @@ douninstall() {
 				exit
 		;;
 	esac
+}
+
+dostartup(){
+
+# sleep for a little while - avoid race at boot time
+
+	sleep 30
+
+# setup post-mount and services-start if needed
+
+	Auto_Startup create
+
+# insert into web UI
+
+	addmenu
+
+# add the cron job
+
+	addcronjob
+
+# prime the pump (do an initial run
+
+	doweb=0  # override if set
+	cronmode=1	# set in cron mode
+	docronjob
+
+	logger -t "genailogs" "genailogs startup complete"
 }
 
 doupdate() {
@@ -343,7 +458,7 @@ genaiqa() {
 
     	d=$(tail -n "$NUMLINES" "$1")
 
-    	question="Please analyze the following log file for issues: '${d}'"
+    	question="Please analyze the following log file fram an Asuswrt-Merlin router for issues: '${d}'"
 
    else
 	question="Please answer the following: ${1}?"
@@ -512,7 +627,7 @@ dochat() {
     # Call GenAI API
 	if [ ! -z "$input" ]; then
 		cleanout=$(echo $input | sed "s/\"/'/g")
-		genaiqa "$cleanout"
+                genaiqa "$cleanout"
 	fi
 done
 }
@@ -586,6 +701,14 @@ dogenai() {
 				;;
 				uninstall)
 					douninstall
+					exit
+				;;
+				startup)
+					dostartup
+					exit
+				;;
+				redomenu)
+					addmenu
 					exit
 				;;
 				help)
